@@ -387,6 +387,9 @@ SQRESULT sqstd_loadfile(HSQUIRRELVM v,const SQChar *filename,SQBool printerror)
 						return sq_throwerror(v,_SC("Unrecognozed ecoding")); 
 					}
 #ifdef SQUNICODE
+#ifdef SQUTF8
+#error "SQUTF8 is not compatible with SQUNICODE, as it uses 16bits to store a char -> it might be suitable for a utf16 implementation"
+#endif
 					func = _io_file_lexfeed_UTF8;
 #else
 					func = _io_file_lexfeed_PLAIN;

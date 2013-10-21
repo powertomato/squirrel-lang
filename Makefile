@@ -1,12 +1,13 @@
+.PHONY: sq32 sqprof sq64
+
+export CPP=g++
+export CC=gcc
+export AR=ar
+export DEFS=-DSQUTF8 #-DSQ64
+export MAKE=make
+export RM=rm
 
 SQUIRREL=.
-MAKE=make
-
-ifndef DEFS
-export DEFS=
-else
-export DEFS
-endif
 
 sq32:
 	cd squirrel; $(MAKE) 
