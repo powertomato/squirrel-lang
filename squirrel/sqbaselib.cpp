@@ -178,7 +178,7 @@ static SQInteger get_slice_params(HSQUIRRELVM v,SQInteger &sidx,SQInteger &eidx,
 		}
 	}
 	else {
-		eidx = sq_getsize(v,1); //XXX
+		eidx = sq_getsize(v,1);
 	}
 	return 1;
 }
@@ -505,7 +505,7 @@ void sq_base_register(HSQUIRRELVM v)
 
 static SQInteger default_delegate_len(HSQUIRRELVM v)
 {
-	v->Push(SQInteger(sq_getsize(v,1))); //XXX
+	v->Push(SQInteger(sq_getsize(v,1)));
 	return 1;
 }
 
