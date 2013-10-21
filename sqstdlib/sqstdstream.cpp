@@ -142,7 +142,7 @@ SQInteger _stream_write(HSQUIRRELVM v)
 	SQInteger size;
 	const SQChar *data;
 	sq_getstring(v,2,&data);
-	size = sq_getsize(v,2);
+	size = sq_getsize(v,2,SQTrue);
 	size = self->Write((void*)data,size);
 	if(size < 0)
 		return sq_throwerror(v,_SC("I/O error in write()"));

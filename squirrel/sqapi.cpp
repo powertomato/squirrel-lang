@@ -674,12 +674,18 @@ SQRESULT sq_clone(HSQUIRRELVM v,SQInteger idx)
 	return SQ_OK;
 }
 
-SQInteger sq_getsize(HSQUIRRELVM v, SQInteger idx)
+SQInteger sq_getsize(HSQUIRRELVM v, SQInteger idx, SQBool byte_size)
 {
 	SQObjectPtr &o = stack_get(v, idx);
 	SQObjectType type = type(o);
 	switch(type) {
-	case OT_STRING:		return _string(o)->_len;
+	case OT_STRING:		
+#ifndef SQUTF8    
+        byte_size = SQFalse; // For compiler
+        return _string(o)->_len;
+#else
+        return byte_size ? _string(o)->_len : _string(o)->GetUtf8Length();
+#endif
 	case OT_TABLE:		return _table(o)->CountUsed();
 	case OT_ARRAY:		return _array(o)->Size();
 	case OT_USERDATA:	return _userdata(o)->_size;

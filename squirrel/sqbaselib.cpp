@@ -9,6 +9,7 @@
 #include "sqfuncproto.h"
 #include "sqclosure.h"
 #include "sqclass.h"
+#include "squtf8.h"
 #include <stdlib.h>
 #include <stdarg.h>
 #include <ctype.h>
@@ -177,7 +178,7 @@ static SQInteger get_slice_params(HSQUIRRELVM v,SQInteger &sidx,SQInteger &eidx,
 		}
 	}
 	else {
-		eidx = sq_getsize(v,1);
+		eidx = sq_getsize(v,1); //XXX
 	}
 	return 1;
 }
@@ -206,7 +207,7 @@ static SQInteger base_compilestring(HSQUIRRELVM v)
 	const SQChar *src=NULL,*name=_SC("unnamedbuffer");
 	SQInteger size;
 	sq_getstring(v,2,&src);
-	size=sq_getsize(v,2);
+	size=sq_getsize(v,2,SQTrue); //UTF8CHANGE
 	if(nargs>2){
 		sq_getstring(v,3,&name);
 	}
@@ -289,6 +290,188 @@ static SQRegFunction base_funcs[]={
 	{0,0}
 };
 
+//Support for UTF8 strings //////////////////////////
+
+#ifdef SQUTF8 
+
+static int SQUtf8CharLen( const char *pc ){
+    int lb = *(unsigned char*)pc;
+    if( !(lb&0x80) ) return 1;	
+    if( (lb&0xE0)==0xC0 ) return 2;
+    if( (lb&0xF0)==0xE0 ) return 3;
+    if( (lb&0xF8)==0xF0 ) return 4;
+    if( (lb&0xFC)==0xF8 ) return 5;
+    if( (lb&0xFE)==0xFC ) return 6;
+    
+    // When come here we don't have a valid lead byte. Step forward to 
+    // next lead byte and measure length.
+    const char *pc_end = pc+1;
+    while( (*pc_end&0xC0)==0x80 )
+        pc_end++;
+    
+    return pc_end-pc;
+}
+
+SQInteger SQGetUtf8Length(const SQChar *ps, SQInteger byte_len){
+    if( !ps ) return 0;
+    SQInteger len = 0;
+    if( byte_len>=0 ){
+        // Could contain zeros
+        const char *end = ps+byte_len;
+        while( ps<end )
+            if( ((*ps++)&0xC0)!=0x80 )
+                len++;
+    }
+    else{
+        // Zero terminated
+        unsigned char ch;
+        while( (ch=*ps++) )
+            if( (ch&0xC0)!=0x80 ) 
+                len++;
+    }
+    return len;
+}
+
+void SQUtf8Iter::Init(const char *ps, int len){
+    _ps = ps;
+    _end = ps + (len>=0 || !ps ? len : strlen(ps));
+    _cps = ps;
+    _pos = 0;
+    _len = -1;
+}
+
+int g_n_goto;
+int g_n_step;
+const char* SQUtf8Iter::Goto(int pos)
+{
+    assert(_ps);
+    g_n_goto++;
+    while( _pos<pos )
+        if( !StepFwd() )
+            return NULL;
+    while( _pos>pos )
+        if( !StepBack() )
+            return NULL;
+    return (const char*)_cps;
+}
+
+int SQUtf8Iter::ToIndex(const char *ps){
+    if( ps<_ps || ps>_end ) return -1;
+    g_n_goto++;
+    while( ps>_cps )
+        if( !StepFwd() )
+            return -1;
+    while( ps<_cps )
+        if( !StepBack() )
+            return -1;
+    return _pos;
+}
+
+bool SQUtf8Iter::StepFwd()
+{
+	g_n_step++;
+    if( _cps>=_end )
+        return false;
+    // Test for simple case
+    if( !(*_cps&0x80) ){
+    	_cps++;
+    	_pos++;
+    	return true; //_cps<_end;
+    }
+    SQInteger len = SQUtf8CharLen(_cps);
+    if( len<1 ) 
+    	return false;
+    _cps += len;
+    _pos++;
+    return true; //_cps<_end;
+}
+
+bool SQUtf8Iter::StepBack()
+{
+	g_n_step++;
+    unsigned char ch;
+    while( _cps>_ps ){
+        ch = *--_cps;
+        if( (ch&0xC0)!=0x80 ){
+            _pos--;
+            return true;
+        }
+    }
+    // When the first character in the string is invalid UTF8, treat that as 
+    // accepted index 0. That puts us back at the iteration starting point.
+    if( _pos==1 ) {
+        _pos = 0;
+        return true;
+    }
+    return false;
+}
+
+/*
+int SQUtf8Iter::Length( ){
+    if( _len>=0 ) return _len;
+    while( _cps<_end )	// Optimize 
+        if( !StepFwd() )
+            return -1;
+    _len = _pos;
+    return _len;
+}
+*/
+
+int SQUtf8Iter::GetUniChar(){
+    int ch = *(unsigned char*)_cps;
+    if( !(ch&0x80) ) return ch;     // Length 1
+    
+    const char *ps = _cps;
+    int len = SQUtf8CharLen(_cps);
+    const char *end = ps+len;
+    ch &= 0x7F>>len;
+    while( ++ps<end )
+        ch = (ch<<6) + ((*ps)&0x3F);
+    return ch;
+}
+
+int SQUtf8Iter::GetUniChar(int pos){
+    if( Goto(pos) )
+        return GetUniChar();
+    else 
+        return -1;
+}
+
+static SQUtf8Iter g_utf8_iter[SQ_N_UTF8_ITER];
+static int g_utf8_last;
+int g_n_lookup;
+int g_n_hit;
+
+SQUtf8Iter& SQGetUtf8Iter(const SQChar* s, long long len){
+	g_n_lookup++;
+    for( SQInteger ix=0; ix<SQ_N_UTF8_ITER; ix++ ){
+        if( g_utf8_iter[g_utf8_last]._ps==s ){
+        	g_n_hit++;
+            return g_utf8_iter[g_utf8_last];
+        }
+        g_utf8_last = (g_utf8_last+1) & (SQ_N_UTF8_ITER-1); 
+    }
+    g_utf8_last = (g_utf8_last+1) & (SQ_N_UTF8_ITER-1); 
+    g_utf8_iter[g_utf8_last].Init(s,len);
+    return g_utf8_iter[g_utf8_last];
+}
+
+SQUtf8Iter& SQGetUtf8Iter(SQString* s){
+    return SQGetUtf8Iter(s->_val,s->_len);
+}
+
+void SQClearUtf8Iter(SQString* s){
+    for( SQInteger ix=0; ix<SQ_N_UTF8_ITER; ix++ ){
+        if( g_utf8_iter[ix]._ps==s->_val ){
+            g_utf8_iter[ix].Init(NULL,0);
+            return;
+        }
+    }
+}
+#endif
+
+
+
 void sq_base_register(HSQUIRRELVM v)
 {
 	SQInteger i=0;
@@ -322,7 +505,7 @@ void sq_base_register(HSQUIRRELVM v)
 
 static SQInteger default_delegate_len(HSQUIRRELVM v)
 {
-	v->Push(SQInteger(sq_getsize(v,1)));
+	v->Push(SQInteger(sq_getsize(v,1))); //XXX
 	return 1;
 }
 
@@ -792,12 +975,27 @@ static SQInteger string_slice(HSQUIRRELVM v)
 	SQInteger sidx,eidx;
 	SQObjectPtr o;
 	if(SQ_FAILED(get_slice_params(v,sidx,eidx,o)))return -1;
+#ifndef SQUTF8
 	SQInteger slen = _string(o)->_len;
+#else
+	SQInteger slen = _string(o)->GetUtf8Length();
+#endif
 	if(sidx < 0)sidx = slen + sidx;
 	if(eidx < 0)eidx = slen + eidx;
 	if(eidx < sidx)	return sq_throwerror(v,_SC("wrong indexes"));
 	if(eidx > slen)	return sq_throwerror(v,_SC("slice out of range"));
+#ifndef SQUTF8
 	v->Push(SQString::Create(_ss(v),&_stringval(o)[sidx],eidx-sidx));
+#else
+	SQUtf8Iter& u8it = SQGetUtf8Iter(_string(o));
+	const SQChar *pe = u8it.Goto(eidx);
+	if( !pe ) 
+		return sq_throwerror(v,_SC("slice out of range (UTF8: end)"));
+	const SQChar *ps = u8it.Goto(sidx);
+	if( !ps ) 
+		return sq_throwerror(v,_SC("slice out of range (UTF8: start)"));
+	v->Push(SQString::Create(_ss(v),ps,pe-ps));
+#endif
 	return 1;
 }
 
@@ -807,10 +1005,22 @@ static SQInteger string_find(HSQUIRRELVM v)
 	const SQChar *str,*substr,*ret;
 	if(((top=sq_gettop(v))>1) && SQ_SUCCEEDED(sq_getstring(v,1,&str)) && SQ_SUCCEEDED(sq_getstring(v,2,&substr))){
 		if(top>2)sq_getinteger(v,3,&start_idx);
-		if((sq_getsize(v,1)>start_idx) && (start_idx>=0)){
+#ifdef SQUTF8
+		// Convert index to byte offset
+		SQUtf8Iter& u8it = SQGetUtf8Iter(str);
+		if(start_idx!=0 ) {
+			start_idx = u8it.Goto(start_idx) ? u8it.Get()-str : 0x7FFFFFFF; 
+		}
+#endif
+		if(!start_idx || ((sq_getsize(v,1,SQTrue)>start_idx) && (start_idx>=0))){
+
 			ret=scstrstr(&str[start_idx],substr);
 			if(ret){
+#ifndef SQUTF8
 				sq_pushinteger(v,(SQInteger)(ret-str));
+#else
+				sq_pushinteger(v,(SQInteger)(u8it.ToIndex(ret)));
+#endif
 				return 1;
 			}
 		}

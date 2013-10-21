@@ -60,12 +60,23 @@ void SQString::Release()
 SQInteger SQString::Next(const SQObjectPtr &refpos, SQObjectPtr &outkey, SQObjectPtr &outval)
 {
 	SQInteger idx = (SQInteger)TranslateIndex(refpos);
+#ifndef SQUTF8 
 	while(idx < _len){
 		outkey = (SQInteger)idx;
 		outval = (SQInteger)((SQUnsignedInteger)_val[idx]);
 		//return idx for the next iteration
 		return ++idx;
 	}
+#else
+    static SQUtf8Iter u8it;    // Good place for a static one 
+    if( u8it._ps!= _val || !idx )
+        u8it.Init(_val,_len);
+    if( u8it.Goto(idx) && !u8it.AtEnd() ){
+        outkey = (SQInteger)idx;
+        outval = (SQInteger)u8it.GetUniChar();
+		return ++idx;
+    }
+#endif  
 	//nothing to iterate anymore
 	return -1;
 }
@@ -247,7 +258,7 @@ SQInteger SQFunctionProto::GetLine(SQInstruction *curr)
 			break;
 		}
 	}
-	
+
 	while(mid > 0 && _lineinfos[mid]._op >= op) mid--;
 	
 	line = _lineinfos[mid]._line;

@@ -2,6 +2,12 @@
 SQUIRREL=.
 MAKE=make
 
+ifndef DEFS
+export DEFS=
+else
+export DEFS
+endif
+
 sq32:
 	cd squirrel; $(MAKE) 
 	cd sqstdlib; $(MAKE) 

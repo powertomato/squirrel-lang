@@ -367,7 +367,11 @@ SQUIRREL_API void sq_pushuserpointer(HSQUIRRELVM v,SQUserPointer p);
 SQUIRREL_API void sq_pushnull(HSQUIRRELVM v);
 SQUIRREL_API SQObjectType sq_gettype(HSQUIRRELVM v,SQInteger idx);
 SQUIRREL_API SQRESULT sq_typeof(HSQUIRRELVM v,SQInteger idx);
-SQUIRREL_API SQInteger sq_getsize(HSQUIRRELVM v,SQInteger idx);
+#ifdef __cplusplus
+SQUIRREL_API SQInteger sq_getsize(HSQUIRRELVM v,SQInteger idx,SQBool byte_size=SQFalse);
+#else
+SQUIRREL_API SQInteger sq_getsize(HSQUIRRELVM v,SQInteger idx,SQBool byte_size);
+#endif
 SQUIRREL_API SQHash sq_gethash(HSQUIRRELVM v, SQInteger idx);
 SQUIRREL_API SQRESULT sq_getbase(HSQUIRRELVM v,SQInteger idx);
 SQUIRREL_API SQBool sq_instanceof(HSQUIRRELVM v);
